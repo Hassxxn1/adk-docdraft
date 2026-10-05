@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Document Drafting Portal · ADK Hospital</title>
+  <link rel="icon" href="/assets/logo.png">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-inner">
+      <img src="/assets/logo.png" alt="ADK Hospital" class="logo">
+      <div class="top-title">
+        <span class="eyebrow">Document Governance</span>
+        <span class="app-name">Policy and SOP Drafting Portal</span>
+      </div>
+      <div class="user" id="userBox" hidden><span id="userName"></span><a href="#" id="signOut">Sign out</a></div>
+    </div>
+  </header>
+
+  <main class="wrap login-wrap" id="loginView" hidden>
+    <form class="card login-card" id="loginForm" novalidate>
+      <span class="eyebrow">Document Governance</span>
+      <h2 class="login-title">Policy and SOP Drafting Portal</h2>
+      <p class="hint">Sign in with your ADK Hospital account.</p>
+      <label>Email
+        <input name="email" type="email" autocomplete="username" required placeholder="name@adkhospital.com">
+      </label>
+      <label>Password
+        <input name="password" type="password" autocomplete="current-password" required>
+      </label>
+      <div class="actions"><button type="submit" id="loginBtn">Sign in</button><span id="loginStatus" role="status"></span></div>
+      <p class="small muted demo-tag">Prototype · accounts are created by the portal administrator</p>
+    </form>
+  </main>
+
+  <nav class="wrap tabs" id="tabs" hidden>
+    <button type="button" class="tab active" data-view="newView">New draft</button>
+    <button type="button" class="tab" data-view="mineView">My drafts</button>
+    <button type="button" class="tab" data-view="editorView" id="editorTab" hidden>Editor</button>
+    <button type="button" class="tab" data-view="allView" id="allTab" hidden>All drafts (audit)</button>
+  </nav>
+
+  <main class="wrap layout view" id="newView" hidden>
+    <form id="form" novalidate>
+      <p class="lead">Fill in the document details, then either let the AI draft it from your notes, or open the master template and write it yourself. Either way the draft opens in the template editor, where you edit it exactly as it will appear, then download it as Word. Your department remains the author: resolve the highlighted items, collect the endorsements, then submit it to HR for numbering and issue.</p>
+      <div id="aiNote" class="notice" hidden>AI drafting is not switched on yet. The portal will lay your text into the master template without rewriting it.</div>
+
+      <section class="card">
+        <h2><span class="step">1</span>Document details</h2>
+        <div class="grid">
+          <label class="full">Document type
+            <select name="docType" id="docType" required><option value="">Choose…</option></select>
+          </label>
+          <label class="full">Document title
+            <input name="title" required maxlength="200" placeholder="e.g. Hand Hygiene Compliance Audit">
+          </label>
+          <label>Owning department
+            <select name="deptCode" id="deptCode" required><option value="">Choose…</option></select>
+          </label>
+          <label>Document owner
+            <input name="owner" maxlength="200" placeholder="Name, designation">
+          </label>
+          <label class="full">Applies to
+            <input name="appliesTo" maxlength="500" placeholder="e.g. All nursing staff in inpatient wards">
+          </label>
+          <label class="sop-only">Parent policy ID
+            <input name="parentPolicy" maxlength="200" placeholder="e.g. QSD-POL-002-V1">
+          </label>
+          <label>Supersedes
+            <input name="supersedes" maxlength="200" placeholder="Previous document ID, or leave blank">
+          </label>
+          <label id="clinicalWrap">Clinical impact
+            <select name="clinicalImpact"><option>No</option><option>Yes</option></select>
+          </label>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2><span class="step">2</span>Content</h2>
+        <p class="hint">Write in your own words. Short notes and bullet points are fine. Put each item on its own line. For "Open in template editor" these fields are optional: anything you type here is placed into the template as written.</p>
+
+        <label>Purpose <em>required</em>
+          <textarea name="purpose" rows="3" placeholder="What should this document achieve, and why does the hospital need it?"></textarea>
+        </label>
+        <label>Scope
+          <textarea name="scope" rows="3" placeholder="Who and what it covers. Anything it does not cover."></textarea>
+        </label>
+        <label>Definitions
+          <textarea name="definitions" rows="3" placeholder="Term: meaning&#10;HCW: Healthcare worker"></textarea>
+        </label>
+
+        <label class="policy-only">Policy requirements <em>required</em>
+          <textarea name="statements" rows="7" placeholder="The rules staff must follow, one per line.&#10;All staff perform hand hygiene before and after patient contact.&#10;Each ward completes a monthly hand hygiene audit."></textarea>
+        </label>
+
+        <label class="sop-only">Prerequisites
+          <textarea name="prerequisites" rows="3" placeholder="Equipment, systems, forms or competencies needed before starting."></textarea>
+        </label>
+        <label class="sop-only">Procedure steps <em>required</em>
+          <textarea name="procedure" rows="9" placeholder="The steps in order, one per line. Say who does each step.&#10;Ward manager selects 10 random observation opportunities.&#10;Auditor records each observation on the audit form.&#10;If compliance is below 80%, ward manager starts an action plan."></textarea>
+        </label>
+        <label class="sop-only">Records
+          <textarea name="records" rows="3" placeholder="Forms or registers completed, who keeps them, and for how long."></textarea>
+        </label>
+
+        <label>Roles and responsibilities
+          <textarea name="roles" rows="4" placeholder="Role: what they do&#10;Ward manager: ensures audits are completed monthly"></textarea>
+        </label>
+        <label>Monitoring and compliance
+          <textarea name="monitoring" rows="3" placeholder="How you will know it is followed: indicators, audits, who reports, to which committee."></textarea>
+        </label>
+        <label>Training and implementation
+          <textarea name="training" rows="3" placeholder="Briefing, training or competency checks needed before go-live."></textarea>
+        </label>
+        <label>Related ADK documents
+          <textarea name="related" rows="2" placeholder="Document IDs, one per line."></textarea>
+        </label>
+        <label>References
+          <textarea name="references" rows="2" placeholder="Laws, regulations, Ministry of Health or accreditation standards, cited exactly."></textarea>
+        </label>
+        <label>Anything else the drafter should know
+          <textarea name="notes" rows="2"></textarea>
+        </label>
+      </section>
+
+      <div class="actions">
+        <button type="submit" id="submit">Draft with AI</button>
+        <button type="button" id="blankBtn" class="ghost">Open in template editor</button>
+        <button type="button" id="clear" class="ghost quiet">Clear form</button>
+        <span id="status" role="status"></span>
+      </div>
+    </form>
+
+    <aside class="side">
+      <div class="side-card" id="summary">
+        <div class="band" id="band"><span id="bandLevel">Choose a document type</span><strong id="bandType"></strong></div>
+        <dl>
+          <dt>Document ID</dt><dd id="sumId">—</dd>
+          <dt>Review cycle</dt><dd id="sumReview">—</dd>
+          <dt>Final approval</dt><dd id="sumApproval">—</dd>
+        </dl>
+        <p class="small">HR assigns the number and version on issue. The draft is not valid until approved and issued by HR.</p>
+      </div>
+      <div class="side-card">
+        <h3>After you download</h3>
+        <ol class="small">
+          <li>Check every highlighted item and the drafting notes box.</li>
+          <li>Verify all references, numbers and clinical values.</li>
+          <li>Delete the drafting notes box.</li>
+          <li>Collect at least two endorsement signatures.</li>
+          <li>Send the endorsed document to HR for numbering and issue.</li>
+        </ol>
+      </div>
+      <p class="small muted">Never enter patient-identifiable information in this form.</p>
+    </aside>
+  </main>
+
+  <main class="view editor-view" id="editorView" hidden>
+    <div class="ed-toolbar">
+      <div class="wrap ed-bar">
+        <div class="ed-doc">
+          <strong id="edTitle">Untitled</strong>
+          <span class="small muted" id="edType"></span>
+        </div>
+        <span class="ed-status" id="edStatus"></span>
+        <span class="chip" id="edReadonly" hidden>Read only</span>
+        <div class="ed-actions">
+          <span class="chip warn" id="edCount"></span>
+          <button type="button" class="ghost small-btn" id="edNext">Next item ↓</button>
+          <span class="small muted" id="edFlags"></span>
+          <button type="button" class="ghost small-btn" id="edSave">Save</button>
+          <button type="button" class="small-btn" id="edDownload">Download Word</button>
+        </div>
+      </div>
+      <div class="wrap ed-help small muted" id="edHelp">Click any text to edit. <b>Enter</b> adds the next clause, <b>Backspace</b> on an empty clause removes it. Click a <mark class="confirm">yellow item</mark> to replace it. Numbering updates itself. Changes save automatically.</div>
+    </div>
+    <div class="ed-canvas" id="edCanvas"></div>
+  </main>
+
+  <main class="wrap view" id="mineView" hidden>
+    <section class="card list-card">
+      <h2>My drafts</h2>
+      <p class="hint">Download any earlier draft again. The Word file is rebuilt from the saved draft, so nothing is sent to the AI again.</p>
+      <div class="table-wrap"><table class="list"><thead><tr><th>Date</th><th>Title</th><th>Type</th><th>Dept</th><th>Notes</th><th></th></tr></thead><tbody id="mineRows"></tbody></table></div>
+    </section>
+  </main>
+
+  <main class="wrap view" id="allView" hidden>
+    <section class="card list-card">
+      <h2>All drafts (audit trail)</h2>
+      <p class="hint">Visible to portal administrators only. One line per draft: who, when, type, department, title.</p>
+      <div class="table-wrap"><table class="list"><thead><tr><th>Date</th><th>Drafted by</th><th>Title</th><th>Type</th><th>Dept</th><th>AI</th><th>Status</th><th></th></tr></thead><tbody id="allRows"></tbody></table></div>
+    </section>
+  </main>
+  <script src="/vendor/supabase-js-2.117.2.js"></script>
+  <script src="/vendor/docx-9.8.1.js"></script>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
