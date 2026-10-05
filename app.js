@@ -45,7 +45,7 @@ $('loginForm').addEventListener('submit', async (ev) => {
   status.innerHTML = '<span class="spinner"></span>Signing in…';
   const { error } = await sb.auth.signInWithPassword({ email, password });
   $('loginBtn').disabled = false;
-  if (error) { status.className = 'err'; status.textContent = 'Sign-in failed. Check your email and password.'; return; }
+  if (error) { status.className = 'err'; status.textContent = `Sign-in failed: ${error.message}`; console.error(error); return; }
   status.textContent = '';
   $('loginForm').reset();
 });
