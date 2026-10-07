@@ -57,7 +57,26 @@ The database, the frozen issued Word files and the signed scans are kept in `DAT
 
 ---
 
-## Go-live (about 2 hours for your IT administrator)
+## Where it can be hosted
+
+The portal is a Node.js application with its own database, so it needs a host that **runs a server and keeps files on disk**:
+
+| Host | Suitable | Notes |
+| --- | --- | --- |
+| Azure App Service | Yes (recommended) | Same Microsoft account as ADK's Microsoft 365. Steps below. |
+| Render | Yes | Deploys straight from the GitHub repository using `render.yaml`. Needs a paid plan for the persistent disk. |
+| Any server or container platform | Yes | Use the `Dockerfile`; mount a persistent volume at `/data`. |
+| Netlify, GitHub Pages, Vercel static hosting | **No** | These publish static web pages only. They cannot run the server, sign-in or database, so the portal will not work there. |
+
+### Deploying on Render from GitHub
+
+1. Push this folder to the GitHub repository (the `render.yaml` file must be at the top level).
+2. In Render: **New → Blueprint**, choose the repository, and enter the values it asks for (tenant ID, client ID and secret, redirect URI, public URL, HR e-mails, API key).
+3. In the Entra app registration, set the redirect URI to `https://<your address>/auth/redirect`.
+4. Add the custom domain in Render (**Settings → Custom Domains**) and point the `policies` CNAME at the address Render gives you. Remove the subdomain from Netlify first.
+5. Open `https://<your address>/health`. It should show `"version":"2.0.0"`.
+
+## Go-live on Azure (about 2 hours for your IT administrator)
 
 The example address is **policies.adkhospital.com**.
 
@@ -102,6 +121,7 @@ This loads COR-POL-001-V1 and COR-SOP-001-V1 as **Awaiting signatures**, exactly
 
 ### 6. Test before announcing
 
+0. Open `https://policies.adkhospital.com/health`. It must show `"version":"2.0.0"`. If not, the old code is still running: redeploy, then **Restart** the Web App.
 1. Sign in as an author, create an SOP, edit it, name two colleagues as signatories, and submit.
 2. Each colleague approves; return one once to see the comment loop.
 3. Sign in as HR, assign the number, and download the issued copy.
