@@ -60,6 +60,46 @@ const SCOPES = ['openid', 'profile', 'email'];
 
 const isHRUser = (email, groups = []) => HR_EMAILS.includes(email) || (!!process.env.HR_GROUP_ID && groups.includes(process.env.HR_GROUP_ID));
 
+// [ADK interim sign-in] Shared-password sign-in (AUTH_MODE=password) until Microsoft 365 sign-in is set up.
+if (AUTH_MODE === 'password' && !process.env.ACCESS_PASSWORD) { console.error('AUTH_MODE=password needs ACCESS_PASSWORD.'); process.exit(1); }
+const demoEsc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const demoPage = (msg = '', email = '', name = '') => `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign in · ADK Hospital</title>
+<link rel="stylesheet" href="/styles.css"></head><body>
+<header class="top"><div class="wrap top-inner"><img src="/assets/logo.png" alt="ADK Hospital" class="logo"></div></header>
+<main class="wrap" style="padding-top:60px"><form class="card" method="post" action="/login" style="max-width:440px;padding-bottom:22px">
+<h2>Document Portal</h2><p>Sign in with your name, ADK e-mail and the portal password.</p>
+<label>Your name<input name="name" required value="${demoEsc(name)}"></label>
+<label>ADK e-mail<input name="email" type="email" required value="${demoEsc(email)}" placeholder="name@adkhospital.com"></label>
+<label>Portal password<input name="password" type="password" required></label>
+<p><button type="submit">Sign in</button></p>
+${msg ? `<p style="color:#b0352a">${demoEsc(msg)}</p>` : ''}
+<p style="font-size:13px;color:#6b7785">Microsoft 365 sign-in is coming soon.</p></form></main></body></html>`;
+const demoTries = new Map();
+if (AUTH_MODE === 'password') {
+  app.get('/login', (req, res) => res.send(demoPage()));
+  app.post('/login', express.urlencoded({ extended: false, limit: '10kb' }), (req, res, next) => {
+    const ip = req.ip || '';
+    const t = demoTries.get(ip) || { n: 0, at: Date.now() };
+    if (Date.now() - t.at > 15 * 60 * 1000) { t.n = 0; t.at = Date.now(); }
+    if (t.n >= 10) return res.status(429).send(demoPage('Too many attempts. Try again in 15 minutes.'));
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const name = String(req.body.name || '').trim().slice(0, 120);
+    const a = crypto.createHash('sha256').update(String(req.body.password || '')).digest();
+    const b = crypto.createHash('sha256').update(String(process.env.ACCESS_PASSWORD)).digest();
+    if (!crypto.timingSafeEqual(a, b)) { t.n++; demoTries.set(ip, t); return res.status(401).send(demoPage('Wrong password.', email, name)); }
+    if (!/^[^@\s]+@[^@\s]+$/.test(email) || (EMAIL_DOMAINS.length && !EMAIL_DOMAINS.includes(email.split('@')[1]))) {
+      return res.status(403).send(demoPage('Use your ADK e-mail address.', email, name));
+    }
+    demoTries.delete(ip);
+    req.session.regenerate((err) => {
+      if (err) return next(err);
+      req.session.user = { name: name || email.split('@')[0], email, isHR: HR_EMAILS.includes(email) };
+      res.redirect('/');
+    });
+  });
+}
+
 app.get('/login', async (req, res, next) => {
   if (AUTH_MODE === 'none') {
     // Local testing only: /login?as=name@example.com&name=Name&hr=1 signs in as any user.
@@ -93,7 +133,7 @@ app.get('/auth/redirect', async (req, res, next) => {
 
 app.get('/logout', (req, res) => {
   req.session.destroy(() => {
-    if (AUTH_MODE === 'none') return res.redirect('/signed-out');
+    if (AUTH_MODE !== 'entra') return res.redirect('/signed-out');
     const back = encodeURIComponent(new URL('/signed-out', process.env.REDIRECT_URI).toString());
     res.redirect(`https://login.microsoftonline.com/${process.env.TENANT_ID}/oauth2/v2.0/logout?post_logout_redirect_uri=${back}`);
   });
