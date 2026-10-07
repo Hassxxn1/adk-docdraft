@@ -1,112 +1,178 @@
-# ADK Policy and SOP Drafting Portal — Prototype (Supabase + GitHub + Netlify)
+# ADK Hospital Document Portal
 
-Demo version of the drafting portal. Staff sign in, complete the structured form, and download a draft
-policy or SOP as a Word document in the ADK Master Template (letterhead, level colour band, document control,
-endorsement and revision history tables, tiered clause numbering, drafting-notes box, highlighted
-`[Author to confirm]` items).
+A password-protected web portal that runs the hospital's document governance process (COR-POL-001 and COR-SOP-001) from first draft to issued controlled copy. Staff sign in with their ADK Microsoft 365 account.
 
-| Part | Where it runs |
+## How a document moves through the portal
+
+```
+ Department (author)        Reviewers and approvers         HR (document custodian)
+ ───────────────────        ───────────────────────         ───────────────────────
+ 1. Intake form → AI draft
+ 2. Edit in the portal,
+    resolve highlighted items
+ 3. Name each reviewer and
+    approver (name, designation,
+    e-mail); choose signing method
+ 4. Submit  ───────────────▶ 5. Each signatory, in order,
+                               checks their own details,
+       ◀── return with ─────   reads the preview, and
+           comments            approves or returns
+                                          │ all approved
+                                          ▼
+                                                        6. Verify approvals, assign
+                                                           number, effective and review dates
+                                                           ├─ Electronic: issued at once
+                                                           └─ Signed by hand: FINAL copy
+                                                              printed with every name and
+                                                              designation already filled;
+                                                              signatures collected; HR uploads
+                                                              the signed scan → issued
+ 7. Issued copy in the register. A revision creates version 2 with the same number;
+    when version 2 is issued, version 1 becomes OBSOLETE automatically.
+```
+
+| Role | Who | Can do |
+| --- | --- | --- |
+| Author | Any signed-in staff member | Create, edit while in draft, name signatories, submit, withdraw, start a revision |
+| Signatory | The people the author names | Correct their own name and designation, approve, or return with comments |
+| HR | Members of the HR security group or `HR_EMAILS` | Assign numbers, issue, upload signed copies, make documents obsolete, see all documents, export the register |
+| All staff | Any signed-in staff member | View and download issued documents (Confidential and Highly Confidential only by those involved and HR) |
+
+### Rules the portal enforces
+
+- A draft cannot be submitted while any highlighted `[Author to confirm]` item or drafting note remains.
+- Every page 1 carries all 13 cover-page fields (clause 10), and every file follows the clause 28 format.
+- At least two approval signatories, who must be different people. The author cannot give final approval (clause 14.1).
+- Every signatory needs a name, designation and ADK e-mail before submission, so nothing is handwritten except the signature.
+- Approval stages default to the approval matrix (clause 14.2), with a CMO review added for clinical impact (clause 14.3.1).
+- Only HR assigns numbers. Numbers are unique per department and prefix. A new version keeps its number (clause 15).
+- A revision needs a summary of changes (clause 23.1). Issuing it makes the old version obsolete (clause 25).
+- A management directive needs an expiry or review date (clause 24.4).
+- The issued Word file is frozen at issue, so the controlled copy never changes afterwards.
+- Every action is recorded with who did it and when (History on each document).
+
+### What is stored
+
+The database, the frozen issued Word files and the signed scans are kept in `DATA_DIR`. On Azure App Service, put this under `/home`, which persists across restarts and is included in App Service backups. Back up this folder: it is the master document register.
+
+---
+
+## Where it can be hosted
+
+The portal is a Node.js application with its own database, so it needs a host that **runs a server and keeps files on disk**:
+
+| Host | Suitable | Notes |
+| --- | --- | --- |
+| Azure App Service | Yes (recommended) | Same Microsoft account as ADK's Microsoft 365. Steps below. |
+| Render | Yes | Deploys straight from the GitHub repository using `render.yaml`. Needs a paid plan for the persistent disk. |
+| Any server or container platform | Yes | Use the `Dockerfile`; mount a persistent volume at `/data`. |
+| Netlify, GitHub Pages, Vercel static hosting | **No** | These publish static web pages only. They cannot run the server, sign-in or database, so the portal will not work there. |
+
+### Deploying on Render from GitHub
+
+1. Push this folder to the GitHub repository (the `render.yaml` file must be at the top level).
+2. In Render: **New → Blueprint**, choose the repository, and enter the values it asks for (tenant ID, client ID and secret, redirect URI, public URL, HR e-mails, API key).
+3. In the Entra app registration, set the redirect URI to `https://<your address>/auth/redirect`.
+4. Add the custom domain in Render (**Settings → Custom Domains**) and point the `policies` CNAME at the address Render gives you. Remove the subdomain from Netlify first.
+5. Open `https://<your address>/health`. It should show `"version":"2.0.0"`.
+
+## Go-live on Azure (about 2 hours for your IT administrator)
+
+The example address is **policies.adkhospital.com**.
+
+### 1. Register the app in Microsoft Entra ID
+
+1. Go to <https://entra.microsoft.com> → **App registrations → New registration**.
+   - Name: `ADK Document Portal`
+   - Accounts in this organizational directory only
+   - Redirect URI (Web): `https://policies.adkhospital.com/auth/redirect`
+2. Copy the **Application (client) ID** and **Directory (tenant) ID**.
+3. Go to **Certificates & secrets → New client secret**, copy the value, and put its expiry date in the IT calendar.
+4. **HR role:** create a security group (for example *Document Portal – HR*) with the HR staff in it. Under **Token configuration → Add groups claim**, tick **Security groups**. Copy the group's Object ID into `HR_GROUP_ID`. Alternatively, list HR staff in `HR_EMAILS`.
+5. **E-mail notifications (recommended):** under **API permissions → Add → Microsoft Graph → Application permissions → Mail.Send**, then **Grant admin consent**. Create or choose a mailbox such as `documents@adkhospital.com` and set `NOTIFY_SENDER`. To stop the app sending from other mailboxes, limit it with an Exchange application access policy. Without this, people see their tasks under **My work** in the portal.
+
+### 2. Claude API key (optional at first)
+
+Create an organisation account at <https://console.anthropic.com>, set a monthly spend limit, and create an API key. Without a key, the portal lays the author's text into the template unchanged.
+
+### 3. Azure App Service
+
+1. Create a **Web App**: Code, **Node 22 LTS**, Linux, Basic B1 or above.
+2. **Configuration → General settings:** Startup command `npm start`, **HTTPS Only** on.
+3. **Environment variables:** enter each value from `.env.example`, including `SCM_DO_BUILD_DURING_DEPLOYMENT=true` and `DATA_DIR=/home/data/docportal`.
+4. Keep the app on **one instance**. The database is a single file; scale up rather than out.
+5. Turn on **Backups** for the app (they include `/home`).
+
+### 4. Deploy and connect the subdomain
+
+1. `az webapp deploy --resource-group <group> --name <app> --src-path adk-docdraft.zip --type zip`
+2. **Custom domains → Add**, then at the DNS provider add **CNAME** `policies` → `<app>.azurewebsites.net` and the **TXT** `asuid.policies` record Azure shows. Add a free managed certificate and bind it.
+
+### 5. Load the Document Governance Policy and SOP
+
+From the App Service **SSH** console:
+
+```
+cd /home/site/wwwroot
+npm run import-governance -- manal@adkhospital.com afaal@adkhospital.com nashid@adkhospital.com
+```
+
+This loads COR-POL-001-V1 and COR-SOP-001-V1 as **Awaiting signatures**, exactly as printed. When the signed copies are back, HR opens each one, uploads the scan, and the portal issues them into the register.
+
+### 6. Test before announcing
+
+0. Open `https://policies.adkhospital.com/health`. It must show `"version":"2.0.0"`. If not, the old code is still running: redeploy, then **Restart** the Web App.
+1. Sign in as an author, create an SOP, edit it, name two colleagues as signatories, and submit.
+2. Each colleague approves; return one once to see the comment loop.
+3. Sign in as HR, assign the number, and download the issued copy.
+4. Repeat with **Printed and signed by hand**, and upload a scanned PDF.
+5. Check that a personal Microsoft account is refused.
+
+---
+
+## Configuration reference
+
+| Setting | Purpose |
 | --- | --- |
-| Web pages (form, My drafts, All drafts) | Netlify — static site, no build step |
-| Sign-in | Supabase Auth (email + password; accounts created by the admin) |
-| Departments and document types | Supabase tables `departments`, `doc_types` (replaces `lib/config.js`) |
-| AI drafting | Supabase Edge Function `draft` → Claude API (same `DRAFTING_RULES` as the Azure version) |
-| Word file | Built in the browser with the same layout code (`docgen.js`) |
-| Audit trail + history | Supabase table `drafts` (who, when, type, department, title, AI on/off, flags) |
+| `TENANT_ID`, `CLIENT_ID`, `CLIENT_SECRET`, `REDIRECT_URI` | Microsoft 365 sign-in |
+| `HR_GROUP_ID` or `HR_EMAILS` | Who has the HR role |
+| `HR_NOTIFY_EMAIL` | Shared HR mailbox told when documents are ready for numbering |
+| `ALLOWED_EMAIL_DOMAINS` | E-mail domains allowed for signatories, e.g. `adkhospital.com` |
+| `ALLOWED_GROUP_ID` | Optional: limit the whole portal to one security group |
+| `NOTIFY_SENDER` | Mailbox that sends notification e-mails (needs Mail.Send) |
+| `PUBLIC_URL` | Address used in e-mail links |
+| `ANTHROPIC_API_KEY`, `CLAUDE_MODEL`, `DRAFTS_PER_HOUR` | AI drafting |
+| `DATA_DIR` | Database, issued files and signed scans |
+| `SESSION_SECRET` | Long random string; keep it the same across restarts |
 
-Why the Edge Function and not a Netlify Function: a Claude draft can take 30–60 seconds, which is longer than
-a standard Netlify Function is allowed to run. Supabase Edge Functions allow 150 seconds.
-
-## Template editor
-
-Every draft opens in a template editor that looks like the Word file: letterhead, level colour band,
-document control, endorsement and revision tables, drafting-notes box and numbered clauses.
-
-- **Draft with AI** sends the form to Claude, then opens the result in the editor.
-- **Open in template editor** opens the template straight away (no AI). Anything typed in the form is placed in it.
-- Click any text to edit. **Enter** adds the next clause, **Backspace** on an empty clause removes it,
-  ↑ ↓ × buttons appear on hover. Numbering, fonts and tables are fixed, so the template cannot be broken.
-- Yellow `[Author to confirm]` items: click to replace; **Next item** jumps through them.
-- Changes save automatically (also Ctrl/Cmd+S). **My drafts → Open** reopens a draft; admins can open anyone's draft read-only.
-- **Download Word** builds the .docx from the edited content. On screen the layout is very close to Word,
-  but page breaks are decided by Word.
-
-## Files
-
-```
-index.html  app.js  editor.js  docgen.js  config.js  styles.css  netlify.toml
-assets/logo.png  assets/letterhead.png
-vendor/supabase-js-2.117.2.js  vendor/docx-9.8.1.js      (libraries bundled, no CDN)
-supabase/schema.sql                                      (tables, seed data, RLS)
-supabase/upgrades/002_template_editor.sql                (only if you ran the first schema.sql already)
-supabase/functions/draft/index.ts                        (AI drafting + audit)
-```
-
-## Set-up (about 30 minutes)
-
-### 1. Supabase
-1. Create a new project (or reuse one), e.g. `adk-docdraft`.
-2. **SQL Editor** → paste `supabase/schema.sql` → Run. (Already ran the earlier version? Run `supabase/upgrades/002_template_editor.sql` instead.)
-3. **Authentication → Sign In / Providers → Email**: turn **off** "Allow new users to sign up".
-4. **Authentication → Users → Add user** for each demo user (tick *Auto confirm*).
-5. Set names and your admin role (SQL Editor, change the emails):
-   ```sql
-   update auth.users set raw_user_meta_data = raw_user_meta_data || '{"full_name":"Ahmed Hassaan"}' where email = 'hassaan@adkhospital.com';
-   update auth.users set raw_app_meta_data  = raw_app_meta_data  || '{"role":"admin"}'           where email = 'hassaan@adkhospital.com';
-   ```
-6. **Project Settings → API**: copy the Project URL and the `anon` public key into `config.js`.
-
-### 2. Edge Function
-With the Supabase CLI, in the project folder:
-```
-supabase login
-supabase link --project-ref <your-project-ref>
-supabase functions deploy draft
-supabase secrets set ANTHROPIC_API_KEY=sk-ant-... ALLOWED_EMAIL_DOMAIN=adkhospital.com
-```
-Optional secrets: `CLAUDE_MODEL` (default `claude-sonnet-5-5`), `DRAFTS_PER_HOUR` (default 15).
-
-Without `ANTHROPIC_API_KEY` the portal still works: it lays the author's text into the template unchanged.
-That is a good way to demo the template before the API key is approved.
-
-### 3. GitHub
-```
-git init && git add . && git commit -m "Drafting portal prototype"
-git branch -M main
-git remote add origin https://github.com/Hassxxn1/adk-docdraft.git
-git push -u origin main
-```
-Make the repository **private**.
-
-### 4. Netlify
-**Add new site → Import from GitHub** → choose the repo. Build command: *empty*. Publish directory: `.`
-Every `git push` redeploys.
-
-### 5. Test
-1. Open the Netlify URL, sign in, generate one Policy and one SOP, open both in Word.
-2. **My drafts**: download an earlier draft again (rebuilt from the saved content, no second AI call).
-3. As admin, **All drafts (audit)** shows everyone's drafts. A non-admin user sees only their own.
-
-## Changing things
-
-| To change | Where |
+| To change | Edit |
 | --- | --- |
-| Departments, codes, colours, review cycles, approvers, rollout | Supabase tables `departments`, `doc_types` (no redeploy) |
-| AI drafting rules | `supabase/functions/draft/index.ts` → `DRAFTING_RULES`, then `supabase functions deploy draft` |
-| Word layout, letterhead | `docgen.js`, `assets/letterhead.png`, then `git push` |
-| Form fields and help text | `index.html` (+ `app.js` and the Edge Function if a new field is sent to the AI) |
+| Departments, document types, colours, review cycles, approval stages | `lib/config.js` |
+| AI drafting rules | `lib/ai.js` (`DRAFTING_RULES`) |
+| Word layout, letterhead, fonts | `lib/docgen.js`, `assets/` |
+| Workflow rules and permissions | `lib/workflow.js`, `server.js` |
 
-## Differences from the Azure version (decide before production)
+Treat changes to `lib/config.js` and the drafting rules as amendments to a controlled template, and record them.
 
-- **Sign-in** is Supabase email/password, not Microsoft 365. Supabase also supports Microsoft (Azure) sign-in,
-  so the production version can switch to ADK M365 accounts without changing the rest of the app.
-- **Draft content is saved** in Supabase (`drafts.content`) so drafts can be reopened and edited. The Azure
-  README says draft text is not kept; confirm the saved-drafts approach with IT/legal before real use.
-- Authors can edit their own drafts. A database trigger stops the browser from changing the audit fields
-  (who drafted it, when, type, department, AI or not).
-- The **8-hour session limit** is checked in the browser, based on the time of sign-in.
-- Data protection: the form still warns against patient-identifiable information, and the AI rules forbid it.
-  Review Anthropic's commercial terms and Supabase data location with IT/legal before real use.
+## Data protection
 
-## Run locally
-Any static server works, e.g. `npx serve .` → http://localhost:3000 (uses the live Supabase project in `config.js`).
+- The intake form tells staff never to enter patient-identifiable information, and the AI is instructed not to include it.
+- Intake text is sent to the Claude API only when a draft is created. Review Anthropic's commercial terms and data-retention settings with IT and legal advisers before go-live.
+- Sessions expire after 8 hours. Only ADK tenant accounts can sign in.
+
+## Local testing
+
+```
+npm install
+npm run dev                  # http://localhost:3000 – sign-in bypassed (refused in production)
+# Sign in as anyone: /login?as=name@example.com&name=Name   (add &hr=1 for the HR role)
+npm run sample -- .          # one sample draft for each of the seven levels
+npm run governance -- .      # rebuild COR-POL-001 and COR-SOP-001 as Word files
+```
+
+## Possible next steps
+
+1. Copy each issued document to a SharePoint library automatically, for staff who browse there.
+2. Staff acknowledgement in the portal for documents that require it (clause 20).
+3. Automatic e-mail reminders 60 and 30 days before review dates.
+4. Replace `assets/letterhead.png` with the original high-resolution artwork.
