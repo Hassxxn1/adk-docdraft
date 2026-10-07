@@ -1,0 +1,42 @@
+# Render Blueprint: deploys the ADK Document Portal from this GitHub repository.
+# In Render: New → Blueprint → choose this repository. Then fill in the values marked "sync: false".
+services:
+  - type: web
+    name: adk-document-portal
+    runtime: node
+    region: singapore
+    plan: starter            # a paid plan is needed for the persistent disk below
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /health
+    disk:
+      name: docportal-data
+      mountPath: /var/data   # database, issued Word files and signed scans live here
+      sizeGB: 5
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATA_DIR
+        value: /var/data
+      - key: AUTH_MODE
+        value: entra
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: TENANT_ID
+        sync: false
+      - key: CLIENT_ID
+        sync: false
+      - key: CLIENT_SECRET
+        sync: false
+      - key: REDIRECT_URI
+        sync: false          # e.g. https://policies.adkhospital.com/auth/redirect
+      - key: PUBLIC_URL
+        sync: false          # e.g. https://policies.adkhospital.com
+      - key: HR_EMAILS
+        sync: false
+      - key: ALLOWED_EMAIL_DOMAINS
+        value: adkhospital.com
+      - key: ANTHROPIC_API_KEY
+        sync: false
