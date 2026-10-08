@@ -7,6 +7,7 @@
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const view = $('#view');
   let ME = null;
+  window.ADK = {};
 
   // ---------- Helpers ----------
   async function api(method, url, body, raw) {
@@ -17,6 +18,7 @@
     if (r.status === 401) { location.href = '/login'; throw new Error('Signed out'); }
     const isJson = (r.headers.get('Content-Type') || '').includes('json');
     const data = isJson ? await r.json() : await r.text();
+    if (r.status === 403 && data && data.code === 'password_change_required') { location.hash = '#/account'; location.reload(); throw new Error(data.error); }
     if (!r.ok) { const e = new Error((data && data.error) || 'Something went wrong.'); e.problems = data && data.problems; throw e; }
     return data;
   }
@@ -55,9 +57,12 @@
     $$('#nav a').forEach((a) => a.classList.toggle('active', (a.dataset.nav === 'work' && (h === '#/' || h === '')) || h.startsWith(`#/${a.dataset.nav}`)));
     view.innerHTML = '<p class="loading">Loading…</p>';
     try {
-      if (m) await docView(Number(m[1]));
-      else if (h.startsWith('#/new')) newView();
+      if (ME.user.mustChange) passwordView(true);
+      else if (m) await docView(Number(m[1]));
+      else if (h.startsWith('#/new') && ME.user.isAuthor) newView();
       else if (h.startsWith('#/register')) await registerView();
+      else if (h.startsWith('#/account')) passwordView(false);
+      else if (h.startsWith('#/admin') && ME.user.isAdmin) await window.AdminViews.render(h.slice(8) || 'users', view);
       else await workView();
     } catch (e) {
       view.innerHTML = `<div class="view"><p class="problems" style="padding-left:14px">${esc(e.message)}</p><p><a href="#/">Back to My work</a></p></div>`;
@@ -71,13 +76,12 @@
     const returned = (d) => row(d, d.returned ? `<div class="note">Returned: ${esc(d.returned)}</div>` : '');
     let html = '<div class="view"><h1 class="page-title">My work</h1><p class="lead">Documents waiting for you, and documents you are drafting.</p><div class="dash">';
     html += panel('Waiting for your approval', w.tasks, 'Nothing is waiting for your approval.', undefined, 'wide');
-    if (ME.user.isHR) {
-      html += panel('HR: ready for numbering or awaiting signed copy', w.hr, 'Nothing is waiting for HR.', undefined, 'wide');
-      html += panel('HR: reviews due within 60 days', w.dueSoon, 'No reviews are due in the next 60 days.', (d) => row(d, `<div class="m">Review due ${esc(fmtDate(d.reviewDate))}</div>`), 'wide');
-    }
-    html += panel('My documents', w.mine, 'You have not started any documents yet.', returned);
+    if (ME.user.isHR) html += panel('HR: ready for numbering or awaiting signed copy', w.hr, 'Nothing is waiting for HR.', undefined, 'wide');
+    if (ME.user.oversees.length) html += panel(`My department's documents (${ME.user.oversees.join(', ')})`, w.department, 'No documents in progress or issued yet.', undefined, 'wide');
+    if (ME.user.isHR || ME.user.oversees.length) html += panel('Reviews due within 60 days', w.dueSoon, 'No reviews are due in the next 60 days.', (d) => row(d, `<div class="m">Review due ${esc(fmtDate(d.reviewDate))}</div>`), 'wide');
+    if (ME.user.isAuthor || w.mine.length) html += panel('My documents', w.mine, 'You have not started any documents yet.', returned);
     html += panel('Documents I review or approve', w.involved, 'None yet.');
-    html += '</div><p><a class="button" href="#/new">Start a new document</a></p></div>';
+    html += `</div>${ME.user.isAuthor ? '<p><a class="button" href="#/new">Start a new document</a></p>' : ''}</div>`;
     view.innerHTML = html;
   }
 
@@ -93,6 +97,7 @@
     if (!ME.aiEnabled) $('#aiNote').hidden = false;
     for (const [k, v] of Object.entries(ME.types)) $('#docType').add(new Option(`Level ${v.level} · ${v.label}`, k));
     for (const d of ME.departments) $('#deptCode').add(new Option(`${d.name} (${d.code})`, d.code));
+    $('#preparedBy').value = `${ME.user.name}${ME.user.designation ? `, ${ME.user.designation}` : ' (no designation – ask the Super Admin)'}`;
 
     function fillVariants(keep) {
       const t = ME.types[$('#docType').value];
@@ -117,7 +122,7 @@
       $$('[data-show]', form).forEach((el) => { el.hidden = !tpl || !el.dataset.show.split(' ').includes(tpl); });
       $('#scopeLabel').textContent = SCOPE_LABEL[tpl] || 'Scope';
       $('#clinicalWrap').hidden = !!(t && t.clinical);
-      if (t && t.forceDept) { $('#deptCode').value = t.forceDept; $('#deptCode').disabled = true; } else $('#deptCode').disabled = false;
+      $('#deptCode').value = (t && t.forceDept) || ME.user.dept || '';
       const dept = $('#deptCode').value || 'DEPT';
       $('#band').style.background = t ? `#${t.colour}` : '';
       $('#bandLevel').textContent = t ? `Level ${t.level}` : 'Choose a document type';
@@ -145,7 +150,7 @@
     form.addEventListener('submit', async (ev) => {
       ev.preventDefault();
       const t = effective();
-      const need = ['docType', 'title', 'deptCode', 'authorDesignation', 'purpose', ...(t ? REQUIRED[t.template] : [])];
+      const need = ['docType', 'title', 'purpose', ...(t ? REQUIRED[t.template] : [])];
       $$('.invalid', form).forEach((el) => el.classList.remove('invalid'));
       const missing = need.filter((n) => !form.elements[n].value.trim());
       missing.forEach((n) => form.elements[n].classList.add('invalid'));
@@ -204,12 +209,15 @@
     if (can.edit) editorPanels(col, d, refreshPreview);
     else {
       if (can.approve) col.insertAdjacentHTML('beforeend', approvalCard(d));
-      else if (can.updateOwnDetails) col.insertAdjacentHTML('beforeend', ownDetailsCard(d));
+      if (can.recall) col.insertAdjacentHTML('beforeend', '<section class="card"><h3>Recall to draft</h3><p class="small muted">Brings the document back to you for changes, for example to replace a signatory. Approvals given so far are cleared and the review starts again when you resubmit.</p><p><button class="ghost small" id="recallBtn">Recall to draft</button></p></section>');
       if (can.assignNumber) col.insertAdjacentHTML('beforeend', hrNumberCard(d));
       if (can.uploadSigned) col.insertAdjacentHTML('beforeend', uploadCard(d));
       if (doc.status === 'issued' || doc.status === 'obsolete') col.insertAdjacentHTML('beforeend', issuedCard(d));
       if (doc.status === 'signing' && !can.uploadSigned) col.insertAdjacentHTML('beforeend', `<section class="card action"><h3>Ready to print and sign</h3><p>HR has assigned <strong>${esc(doc.docId)}</strong>. Download the Word file, print it, collect the signatures, and return the signed copy to HR. HR scans it and issues the document.</p></section>`);
-      if (doc.status === 'review' && !can.approve) col.insertAdjacentHTML('beforeend', `<section class="card"><h3>Under review</h3><p class="small">Waiting on <strong>${esc(s.waitingOn || '')}</strong>. You will see it again if it is returned.</p></section>`);
+      if (doc.status === 'review' && !can.approve) {
+        const stuck = d.signatories.find((x) => x.email === d.current && x.problem);
+        col.insertAdjacentHTML('beforeend', `<section class="card"><h3>Under review</h3><p class="small">Waiting on <strong>${esc(s.waitingOn || '')}</strong>.${stuck ? ` <span class="warn-chip">${esc(stuck.problem)}</span> The author should recall the document and choose another signatory.` : ' You will see it again if it is returned.'}</p></section>`);
+      }
       col.insertAdjacentHTML('beforeend', signatoryView(d));
       if (can.withdraw) col.insertAdjacentHTML('beforeend', '<section class="card"><h3>Withdraw</h3><p class="small muted">Stops the review. The document stays in your list as withdrawn.</p><p><button class="danger small" id="withdrawBtn">Withdraw document</button></p></section>');
     }
@@ -241,7 +249,7 @@
         <label class="full">Document title<input name="title" value="${esc(doc.title)}" maxlength="200"></label>
         <label class="full">Applicable to<input name="appliesTo" value="${esc(doc.appliesTo)}" maxlength="500" placeholder="e.g. All Departments"></label>
         <label>Document owner (optional)<input name="owner" value="${esc(doc.owner)}" maxlength="200" placeholder="Role within the department"></label>
-        <label>Your designation (Prepared by)<input name="authorDesignation" value="${esc(doc.authorDesignation)}" maxlength="120"></label>
+        <label>Prepared by<input value="${esc(doc.authorName)}${doc.authorDesignation ? `, ${esc(doc.authorDesignation)}` : ''}" disabled></label>
         ${d.type.template === 'sop' ? `<label>Parent policy ID<input name="parentPolicy" value="${esc(doc.parentPolicy)}" maxlength="200" placeholder="e.g. QSD-POL-002-V1, or None"></label>` : ''}
         ${d.type.template === 'directive' ? `<label>Effective from<input type="date" name="effectiveFrom" value="${esc(doc.effectiveFrom)}"></label><label>Expiry or review date<input type="date" name="expiry" value="${esc(doc.expiry)}"></label>` : ''}
         <label>Confidentiality level${sel('confidentiality', ['Internal Use', 'Public', 'Confidential', 'Highly Confidential'], doc.confidentiality)}</label>
@@ -250,9 +258,8 @@
         ${doc.version > 1 ? `<label class="full">Summary of changes in this version<textarea name="changeSummary" rows="2">${esc(doc.changeSummary)}</textarea></label><label>Clause(s) changed<input name="changeClauses" value="${esc(doc.changeClauses)}" placeholder="e.g. 6.2, 7.1"></label>` : ''}
       </div></section>
       <section class="card"><h3>Reviewers and approvers</h3>
-        <p class="small muted">Enter each person's name, designation and ADK e-mail. Each one sees the document under My work when it is their turn, and can correct their own details before approving. Stages follow the approval matrix (COR-SOP-001 clause 14).</p>
-        <div class="table-wrap"><table class="sig-table"><thead><tr><th style="width:28%">Stage</th><th>Name</th><th>Designation</th><th>E-mail</th><th></th></tr></thead><tbody id="sigRows"></tbody></table></div>
-        <datalist id="people"></datalist>
+        <p class="small muted">Choose each reviewer and approver from the portal's signatories, in the order they will approve. Names and designations come from their accounts. Stages follow the approval matrix (COR-SOP-001 clause 14). If someone is missing from the list, ask the Super Admin to give them the Signatory role.</p>
+        <div class="table-wrap"><table class="sig-table"><thead><tr><th style="width:38%">Stage</th><th>Person</th><th></th></tr></thead><tbody id="sigRows"></tbody></table></div>
         <p><button type="button" class="ghost small" id="addSig">Add a reviewer</button></p>
       </section>
       <section class="card"><h3>Content</h3>
@@ -264,40 +271,28 @@
       ${d.can.withdraw ? '<section class="card"><h3>Withdraw</h3><p><button class="danger small" id="withdrawBtn" type="button">Withdraw document</button></p></section>' : ''}`;
 
     const sigRows = $('#sigRows');
-    const addRow = (s, before) => {
+    let people = [];
+    const personOptions = (selected) => `<option value="">Choose a person…</option>${people.map((p) => `<option value="${p.id}"${p.id === selected ? ' selected' : ''}>${esc(p.name)} – ${esc(p.designation)}${p.deptName ? ` (${esc(p.deptName)})` : ''}</option>`).join('')}`;
+    const addRow = (x, before) => {
       const tr = document.createElement('tr');
-      tr.innerHTML = `<td><input data-k="stage" value="${esc(s.stage)}"></td><td><input data-k="name" list="people" value="${esc(s.name)}"></td><td><input data-k="designation" value="${esc(s.designation)}"></td><td><input data-k="email" type="email" value="${esc(s.email)}" placeholder="name@adkhospital.com"></td><td><button type="button" class="rm" title="Remove">×</button></td>`;
+      const missing = x.userId && !people.some((p) => p.id === x.userId);
+      tr.innerHTML = `<td><input data-k="stage" value="${esc(x.stage)}"></td><td><select data-k="userId">${personOptions(missing ? null : x.userId)}</select>${missing ? `<div class="small"><span class="warn-chip">${esc(x.name || 'Previous signatory')} is no longer available – choose again</span></div>` : ''}</td><td><button type="button" class="rm" title="Remove">×</button></td>`;
       if (before) sigRows.insertBefore(tr, before); else sigRows.appendChild(tr);
     };
-    d.signatories.forEach((s) => addRow(s));
-
-    // People seen before: typing a name offers matches, and picking one fills designation and e-mail.
-    let people = [];
-    sigRows.addEventListener('input', async (e) => {
-      const inp = e.target;
-      if (inp.dataset.k !== 'name') return;
-      const match = people.find((p) => p.name === inp.value);
-      if (match) {
-        const tr = inp.closest('tr');
-        if (!$('[data-k=designation]', tr).value) $('[data-k=designation]', tr).value = match.designation || '';
-        if (!$('[data-k=email]', tr).value) $('[data-k=email]', tr).value = match.email || '';
-        return;
-      }
-      if (inp.value.length >= 2) {
-        try { people = await api('GET', `/api/people?q=${encodeURIComponent(inp.value)}`); } catch (err) { people = []; }
-        $('#people').innerHTML = people.map((p) => `<option value="${esc(p.name)}">${esc(p.designation || '')} · ${esc(p.email)}</option>`).join('');
-      }
-    });
+    api('GET', '/api/signatories').then((list) => {
+      people = list;
+      d.signatories.forEach((x) => addRow(x));
+    }).catch((e) => toast(e.message, true));
 
     const form = $('#editor');
     const payload = () => {
       const f = form.elements;
       const body = {};
-      ['title', 'appliesTo', 'owner', 'authorDesignation', 'parentPolicy', 'effectiveFrom', 'expiry', 'confidentiality', 'clinicalImpact', 'signMethod', 'changeSummary', 'changeClauses']
+      ['title', 'appliesTo', 'owner', 'parentPolicy', 'effectiveFrom', 'expiry', 'confidentiality', 'clinicalImpact', 'signMethod', 'changeSummary', 'changeClauses']
         .forEach((k) => { if (f[k]) body[k] = f[k].value; });
       body.sections = {};
       d.sectionList.forEach((sc) => { body.sections[sc.key] = f[`sec_${sc.key}`].value; });
-      body.signatories = $$('tr', sigRows).map((tr) => Object.fromEntries($$('input', tr).map((i) => [i.dataset.k, i.value])));
+      body.signatories = $$('tr', sigRows).map((tr) => ({ stage: $('[data-k=stage]', tr).value, userId: Number($('[data-k=userId]', tr).value) || null }));
       return body;
     };
 
@@ -322,7 +317,7 @@
     function schedule() { dirty = true; $('#saveState').textContent = 'Unsaved changes'; clearTimeout(timer); timer = setTimeout(saveNow, 1200); }
     form.addEventListener('input', schedule);
     form.addEventListener('change', schedule);
-    $('#addSig').addEventListener('click', () => { addRow({ stage: 'Reviewed by (', name: '', designation: '', email: '' }, sigRows.lastElementChild); schedule(); });
+    $('#addSig').addEventListener('click', () => { addRow({ stage: 'Reviewed by (', userId: null }, sigRows.lastElementChild); schedule(); });
     sigRows.addEventListener('click', (e) => { if (e.target.classList.contains('rm')) { e.target.closest('tr').remove(); schedule(); } });
     leaveGuard = () => saveNow();
     window.onbeforeunload = () => (dirty ? 'You have unsaved changes.' : undefined);
@@ -348,17 +343,11 @@
   function approvalCard(d) {
     const me = d.signatories.find((s) => s.email === d.current);
     return `<section class="card action" id="approveCard"><h3>Your approval: ${esc(me.stage)}</h3>
-      <p class="small">Check your name and designation as they will appear in the signature table, read the document in the preview, then approve or return it to the author.${d.doc.signMethod === 'wet' ? ' This document will also be printed for your handwritten signature after HR assigns the number.' : ' Your approval is recorded as your electronic signature, with the date and time.'}</p>
-      <div class="grid"><label>Your name<input id="apName" value="${esc(me.name)}"></label><label>Your designation<input id="apDesig" value="${esc(me.designation)}"></label></div>
+      <p class="small">Read the document in the preview, then approve or return it to the author.${d.doc.signMethod === 'wet' ? ' This document will also be printed for your handwritten signature after HR assigns the number.' : ' Your approval is recorded as your electronic signature, with the date and time.'}</p>
+      <dl class="profile"><dt>Signing as</dt><dd>${esc(ME.user.name)}</dd><dt>Designation</dt><dd>${esc(ME.user.designation || '—')}</dd></dl>
+      <p class="small muted">Your name and designation come from your account. If they are wrong, ask the Super Admin to correct them before you approve.</p>
       <label>Comment (optional when approving, required when returning)<textarea id="apComment" rows="3"></textarea></label>
       <div class="actions" style="margin-bottom:16px"><button class="ok" id="approveBtn">Approve</button><button class="ghost" id="returnBtn">Return to author</button></div></section>`;
-  }
-
-  function ownDetailsCard(d) {
-    const me = d.signatories.find((s) => s.email === ME.user.email && s.status === 'pending');
-    return `<section class="card"><h3>Your details: ${esc(me.stage)}</h3><p class="small muted">The document reaches you after the earlier reviewers. You can correct your details now.</p>
-      <div class="grid"><label>Your name<input id="odName" value="${esc(me.name)}"></label><label>Your designation<input id="odDesig" value="${esc(me.designation)}"></label></div>
-      <p><button class="small" id="odSave">Save my details</button></p></section>`;
   }
 
   function hrNumberCard(d) {
@@ -400,7 +389,8 @@
     return `<section class="card"><h3>Reviewers and approvers</h3><div class="table-wrap"><table class="sig-table"><thead><tr><th>Stage</th><th>Name</th><th>Designation</th><th>Status</th></tr></thead><tbody>
       ${rows.map((x) => {
         let st = '';
-        if (!x.prepared) st = x.status === 'approved' ? `<span class="sig-status approved">${x.actedAt ? `Approved ${esc(fmtStamp(x.actedAt))}` : 'Approved (signed on paper)'}</span>` : x.email === d.current ? '<span class="sig-status current">With them now</span>' : '<span class="sig-status pending">Pending</span>';
+        if (x.problem) st = `<span class="warn-chip">${esc(x.problem)}</span>`;
+        else if (!x.prepared) st = x.status === 'approved' ? `<span class="sig-status approved">${x.actedAt ? `Approved ${esc(fmtStamp(x.actedAt))}` : 'Approved (signed on paper)'}</span>` : x.email === d.current ? '<span class="sig-status current">With them now</span>' : '<span class="sig-status pending">Pending</span>';
         return `<tr><td>${esc(x.stage)}</td><td>${esc(x.name)}</td><td>${esc(x.designation)}</td><td>${st}</td></tr>`;
       }).join('')}</tbody></table></div></section>`;
   }
@@ -418,12 +408,12 @@
       try { await fn(); toast(done); reload(); } catch (e) { busy(btn, false); toast(e.problems ? e.problems.join(' ') : e.message, true); }
     };
 
-    on('#approveBtn', (b) => act(b, 'Approving…', () => api('POST', `/api/documents/${id}/approve`, { name: $('#apName').value, designation: $('#apDesig').value, comment: $('#apComment').value }), 'Approved. Thank you.'));
+    on('#approveBtn', (b) => act(b, 'Approving…', () => api('POST', `/api/documents/${id}/approve`, { comment: $('#apComment').value }), 'Approved. Thank you.'));
+    on('#recallBtn', (b) => { if (confirm('Recall this document to draft? Approvals given so far will be cleared.')) act(b, 'Recalling…', () => api('POST', `/api/documents/${id}/recall`, {}), 'Recalled. You can now edit it and resubmit.'); });
     on('#returnBtn', (b) => {
       if (!$('#apComment').value.trim()) { toast('Add a comment explaining what needs to change.', true); $('#apComment').focus(); return; }
       act(b, 'Returning…', () => api('POST', `/api/documents/${id}/return`, { comment: $('#apComment').value }), 'Returned to the author.');
     });
-    on('#odSave', (b) => act(b, 'Saving…', () => api('POST', `/api/documents/${id}/details`, { name: $('#odName').value, designation: $('#odDesig').value }), 'Your details are saved.'));
     on('#withdrawBtn', (b) => { if (confirm('Withdraw this document? Reviewers will no longer see it.')) act(b, 'Withdrawing…', () => api('POST', `/api/documents/${id}/withdraw`, {}), 'Withdrawn.'); });
 
     if ($('#hrCard')) {
@@ -448,6 +438,40 @@
       try { const r = await api('POST', `/api/documents/${id}/revise`, {}); location.hash = `#/doc/${r.id}`; } catch (e) { busy(b, false); toast(e.message, true); }
     });
     on('#obsBtn', (b) => act(b, 'Updating…', () => api('POST', `/api/documents/${id}/obsolete`, { comment: $('#obsComment').value }), 'Marked obsolete.'));
+  }
+
+  // ---------- My account / change password ----------
+  function passwordView(forced) {
+    const u = ME.user;
+    const roles = u.roles.length ? u.roles.map((r) => `<span class="role ${esc(r)}">${esc(ME.roleNames[r])}</span>`).join('') : '<span class="role staff">Staff</span>';
+    view.innerHTML = `<div class="view" style="max-width:640px">
+      <h1 class="page-title">${forced ? 'Choose your password' : 'My account'}</h1>
+      ${forced ? '<p class="lead">You signed in with a temporary password. Choose your own password to continue.</p>' : ''}
+      ${forced ? '' : `<section class="card"><h3>Your details</h3><dl class="profile" style="margin-bottom:16px">
+        <dt>Name</dt><dd>${esc(u.name)}</dd><dt>E-mail</dt><dd>${esc(u.email)}</dd><dt>Designation</dt><dd>${esc(u.designation || '—')}</dd>
+        <dt>Department</dt><dd>${esc(ME.userDeptName || '—')}</dd><dt>Roles</dt><dd>${roles}</dd></dl>
+        <p class="small muted">Only the Super Admin can change these details.</p></section>`}
+      <section class="card"><h3>${forced ? 'New password' : 'Change password'}</h3>
+        <form id="pwForm" novalidate>
+          ${u.method === 'microsoft' && !forced ? '<p class="small muted">You signed in with Microsoft 365. If you have never set a portal password, leave "Current password" blank.</p>' : ''}
+          <label>Current ${forced ? 'temporary ' : ''}password<input type="password" name="current" autocomplete="current-password"></label>
+          <label>New password<input type="password" name="password" autocomplete="new-password"><span class="sec-hint">At least 10 characters, with letters and numbers.</span></label>
+          <label>Repeat new password<input type="password" name="confirm" autocomplete="new-password"></label>
+          <div id="pwMsg"></div>
+          <p><button id="pwBtn">Save new password</button></p>
+        </form></section></div>`;
+    $('#pwForm').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const f = ev.target;
+      const msg = (t) => { $('#pwMsg').innerHTML = t ? `<p class="problems" style="padding-left:14px">${esc(t)}</p>` : ''; };
+      if (f.password.value !== f.confirm.value) { msg('The new passwords do not match.'); return; }
+      busy($('#pwBtn'), true, 'Saving…');
+      try {
+        await api('POST', '/api/account/password', { current: f.current.value, password: f.password.value });
+        toast('Your password has been changed.');
+        if (forced) { location.hash = '#/'; location.reload(); } else { f.reset(); busy($('#pwBtn'), false); msg(''); }
+      } catch (e) { busy($('#pwBtn'), false); msg(e.message); }
+    });
   }
 
   // ---------- Register ----------
@@ -483,7 +507,12 @@
   (async () => {
     try { ME = await api('GET', '/api/me'); } catch (e) { view.innerHTML = '<p class="loading">Could not load the portal. Refresh the page.</p>'; return; }
     $('#userName').textContent = ME.user.name;
-    $('#hrBadge').hidden = !ME.user.isHR;
+    const badge = ME.user.isAdmin ? 'Super Admin' : ME.user.isHR ? 'HR' : '';
+    $('#roleBadge').textContent = badge; $('#roleBadge').hidden = !badge;
+    $('#navNew').hidden = !ME.user.isAuthor;
+    $('#navAdmin').hidden = !ME.user.isAdmin;
+    if (ME.user.mustChange) $('#nav').hidden = true;
+    Object.assign(window.ADK, { api, toast, esc, $, $$, busy, fmtDate, fmtStamp, ME });
     window.addEventListener('hashchange', route);
     route();
   })();

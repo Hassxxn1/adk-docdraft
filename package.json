@@ -1,14 +1,14 @@
 {
   "name": "adk-docdraft",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "ADK Hospital Policy and SOP Drafting Portal",
   "main": "server.js",
   "scripts": {
     "start": "node --no-warnings server.js",
-    "dev": "AUTH_MODE=none node --no-warnings server.js",
     "sample": "node scripts/sample.js",
     "governance": "node scripts/governance-docs.js",
-    "import-governance": "node --no-warnings scripts/import-governance.js"
+    "import-governance": "node --no-warnings scripts/import-governance.js",
+    "create-admin": "node --no-warnings scripts/create-admin.js"
   },
   "license": "UNLICENSED",
   "dependencies": {

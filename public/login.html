@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in · ADK Document Portal</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="login-body">
+  <main class="login-wrap">
+    <div class="login-card">
+      <img src="/assets/logo.png" alt="ADK Hospital" class="login-logo">
+      <p class="eyebrow">Document Governance</p>
+      <h1>Document Portal</h1>
+      <div id="msg" class="problems" hidden></div>
+      <div id="setup" class="notice" hidden>No Super Admin account exists yet. The server administrator must create one (see the deployment guide) before anyone can sign in.</div>
+      <form id="loginForm" novalidate>
+        <label>E-mail<input type="email" name="email" autocomplete="username" required autofocus></label>
+        <label>Password<input type="password" name="password" autocomplete="current-password" required></label>
+        <button type="submit" id="loginBtn" class="wide">Sign in</button>
+      </form>
+      <div id="msWrap" hidden>
+        <div class="or"><span>or</span></div>
+        <a class="button ghost wide" href="/auth/microsoft">Sign in with Microsoft 365</a>
+      </div>
+      <p class="small muted login-foot">Accounts are created by the portal's Super Admin. If you have forgotten your password, ask the Super Admin to reset it.</p>
+    </div>
+  </main>
+  <script src="/login.js"></script>
+</body>
+</html>

@@ -20,23 +20,17 @@ services:
         value: "22"
       - key: DATA_DIR
         value: /var/data
-      - key: AUTH_MODE
-        value: entra
       - key: SESSION_SECRET
         generateValue: true
-      - key: TENANT_ID
-        sync: false
-      - key: CLIENT_ID
-        sync: false
-      - key: CLIENT_SECRET
-        sync: false
-      - key: REDIRECT_URI
-        sync: false          # e.g. https://policies.adkhospital.com/auth/redirect
       - key: PUBLIC_URL
         sync: false          # e.g. https://policies.adkhospital.com
-      - key: HR_EMAILS
+      - key: ADMIN_EMAIL
+        sync: false          # first Super Admin's e-mail
+      - key: ADMIN_NAME
         sync: false
-      - key: ALLOWED_EMAIL_DOMAINS
-        value: adkhospital.com
+      - key: ADMIN_DESIGNATION
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false          # temporary; delete after the first sign-in
       - key: ANTHROPIC_API_KEY
         sync: false

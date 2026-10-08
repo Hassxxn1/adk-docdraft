@@ -16,10 +16,11 @@
       </div>
       <nav class="nav" id="nav">
         <a href="#/" data-nav="work">My work</a>
-        <a href="#/new" data-nav="new">New document</a>
+        <a href="#/new" data-nav="new" id="navNew" hidden>New document</a>
         <a href="#/register" data-nav="register">Register</a>
+        <a href="#/admin/users" data-nav="admin" id="navAdmin" hidden>Admin</a>
       </nav>
-      <div class="user"><span id="userName"></span><span id="hrBadge" class="badge" hidden>HR</span><a href="/logout">Sign out</a></div>
+      <div class="user"><a href="#/account" id="userName" class="who"></a><span id="roleBadge" class="badge" hidden></span><a href="/logout">Sign out</a></div>
     </div>
   </header>
 
@@ -46,7 +47,7 @@
             <input name="title" required maxlength="200" placeholder="e.g. Hand Hygiene Compliance Audit">
           </label>
           <label>Owning department
-            <select name="deptCode" id="deptCode" required><option value="">Choose…</option></select>
+            <select name="deptCode" id="deptCode" disabled><option value="">Choose…</option></select>
           </label>
           <label>Document owner
             <input name="owner" maxlength="200" placeholder="Name, designation">
@@ -66,8 +67,8 @@
           <label>Confidentiality level
             <select name="confidentiality"><option>Internal Use</option><option>Public</option><option>Confidential</option><option>Highly Confidential</option></select>
           </label>
-          <label>Your designation <em>required</em>
-            <input name="authorDesignation" maxlength="120" placeholder="e.g. Director of Nursing">
+          <label>Prepared by
+            <input id="preparedBy" disabled>
           </label>
           <label>How will it be signed?
             <select name="signMethod"><option value="electronic">Approved electronically in the portal</option><option value="wet">Printed and signed by hand</option></select>
@@ -168,8 +169,8 @@
         <h3>What happens next</h3>
         <ol class="small">
           <li>The portal drafts the document. You edit it and resolve every highlighted item.</li>
-          <li>You name each reviewer and approver, with their designation.</li>
-          <li>Each one opens the document in the portal, checks their details, and approves or returns it.</li>
+          <li>You choose each reviewer and approver from the portal's user list.</li>
+          <li>Each one opens the document in the portal and approves or returns it. Their name and designation come from their account.</li>
           <li>HR verifies the approvals and assigns the document number.</li>
           <li>Electronic: issued at once. Signed by hand: print the FINAL copy, collect signatures, and HR uploads the signed scan.</li>
         </ol>
@@ -179,6 +180,7 @@
     </div>
   </template>
 
+  <script src="/admin.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>
